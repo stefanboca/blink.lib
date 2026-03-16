@@ -1,5 +1,5 @@
-local config = require('blink.download.config')
-local async = require('blink.download.lib.async')
+local config = require('blink.lib.download.config')
+local task = require('blink.lib.task')
 
 local system = {
   triples = {
@@ -8,12 +8,21 @@ local system = {
       x64 = 'x86_64-apple-darwin',
     },
     windows = {
+      arm = 'aarch64-pc-windows-msvc',
       x64 = 'x86_64-pc-windows-msvc',
     },
     linux = {
       android = 'aarch64-linux-android',
       arm = function(libc) return 'aarch64-unknown-linux-' .. libc end,
       x64 = function(libc) return 'x86_64-unknown-linux-' .. libc end,
+    },
+    freebsd = {
+      x64 = 'x86_64-unknown-freebsd',
+      arm = 'aarch64-unknown-freebsd',
+    },
+    openbsd = {
+      x64 = 'x86_64-unknown-openbsd',
+      arm = 'aarch64-unknown-openbsd',
     },
   },
 }
@@ -23,16 +32,27 @@ local system = {
 function system.get_info()
   local os = jit.os:lower()
   if os == 'osx' then os = 'mac' end
+
+  if os == 'bsd' then
+    local sysname = vim.loop.os_uname().sysname:lower()
+    if sysname == 'freebsd' then
+      os = 'freebsd'
+    elseif sysname == 'openbsd' then
+      os = 'openbsd'
+    elseif sysname == 'netbsd' then
+      os = 'netbsd'
+    end
+  end
+
   local arch = jit.arch:lower():match('arm') and 'arm' or jit.arch:lower():match('x64') and 'x64' or nil
   return os, arch
 end
 
 --- Gets the system target triple from `cc -dumpmachine`
 --- I.e. 'gnu' | 'musl'
---- @return blink.download.Task
+--- @return blink.lib.Task<'gnu' | 'musl'>
 function system.get_linux_libc()
-  return async
-    .task
+  return task
     -- Check for system libc via `cc -dumpmachine` by default
     -- NOTE: adds 1ms to startup time
     .new(function(resolve) vim.system({ 'cc', '-dumpmachine' }, { text = true }, resolve) end)
@@ -50,7 +70,7 @@ function system.get_linux_libc()
     :map(function(libc)
       if libc ~= nil then return libc end
 
-      return async.task.new(function(resolve)
+      return task.new(function(resolve)
         vim.uv.fs_stat('/etc/alpine-release', function(err, is_alpine)
           if err then return resolve('gnu') end
           resolve(is_alpine ~= nil and 'musl' or 'gnu')
@@ -59,26 +79,11 @@ function system.get_linux_libc()
     end)
 end
 
---- Same as `system.get_linux_libc` but synchronous
-function system.get_linux_libc_sync()
-  local _, process = pcall(function() return vim.system({ 'cc', '-dumpmachine' }, { text = true }):wait() end)
-  if process and process.code == 0 then
-    -- strip whitespace
-    local stdout = process.stdout:gsub('%s+', '')
-    local triple_parts = vim.fn.split(stdout, '-')
-    if triple_parts[4] ~= nil then return triple_parts[4] end
-  end
-
-  local _, is_alpine = pcall(function() return vim.uv.fs_stat('/etc/alpine-release') end)
-  if is_alpine then return 'musl' end
-  return 'gnu'
-end
-
 --- Gets the system triple for the current system
---- I.e. `x86_64-unknown-linux-gnu` or `aarch64-apple-darwin`
---- @return blink.download.Task
+--- for example, `x86_64-unknown-linux-gnu` or `aarch64-apple-darwin`
+--- @return blink.lib.Task
 function system.get_triple()
-  return async.task.new(function(resolve, reject)
+  return task.new(function(resolve, reject)
     if config.force_system_triple then return resolve(config.force_system_triple) end
 
     local os, arch = system.get_info()
@@ -97,9 +102,27 @@ function system.get_triple()
   end)
 end
 
+-- Synchronous
+
+--- Same as `system.get_linux_libc` but synchronous
+--- @return 'gnu' | 'musl'
+function system.get_linux_libc_sync()
+  local _, process = pcall(function() return vim.system({ 'cc', '-dumpmachine' }, { text = true }):wait() end)
+  if process and process.code == 0 then
+    -- strip whitespace
+    local stdout = process.stdout:gsub('%s+', '')
+    local triple_parts = vim.fn.split(stdout, '-')
+    if triple_parts[4] ~= nil then return triple_parts[4] end
+  end
+
+  local _, is_alpine = pcall(function() return vim.uv.fs_stat('/etc/alpine-release') end)
+  if is_alpine then return 'musl' end
+  return 'gnu'
+end
+
 --- Same as `system.get_triple` but synchronous
 --- @see system.get_triple
---- @return string | function | nil
+--- @return string?
 function system.get_triple_sync()
   if config.force_system_triple then return config.force_system_triple end
 

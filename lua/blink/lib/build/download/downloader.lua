@@ -1,18 +1,19 @@
-local async = require('blink.download.lib.async')
-local config = require('blink.download.config')
-local system = require('blink.download.system')
+local task = require('blink.lib.task')
+local config = require('blink.lib.download.config')
+local system = require('blink.lib.download.system')
+local fs = require('blink.lib.fs')
 
 local downloader = {}
 
---- @param files blink.download.Files
+--- @param files blink.lib.download.files
 --- @param get_download_url fun(version: string, system_triple: string, extension: string): string
 --- @param version string
---- @return blink.download.Task
+--- @return blink.lib.Task
 function downloader.download(files, get_download_url, version)
   -- set the version to 'v0.0.0' to avoid a failure causing the pre-built binary being marked as locally built
   return files
     :set_version('v0.0.0')
-    -- Get system trip
+    -- get system triple
     :map(function() return system.get_triple() end)
     :map(function(system_triple)
       if not system_triple then return error('Your system is not supported by pre-built binaries') end
@@ -26,7 +27,7 @@ function downloader.download(files, get_download_url, version)
     )
     :map(
       function()
-        return files.rename(
+        return fs.rename(
           files.lib_folder .. '/' .. files.lib_filename .. '.tmp',
           files.lib_folder .. '/' .. files.lib_filename
         )
@@ -35,12 +36,12 @@ function downloader.download(files, get_download_url, version)
     :map(function() return files:set_version(version) end)
 end
 
---- @param files blink.download.Files
+--- @param files blink.lib.download.files
 --- @param url string
 --- @param filename string
---- @return blink.download.Task
+--- @return blink.lib.Task
 function downloader.download_file(files, url, filename)
-  return async.task.new(function(resolve, reject)
+  return task.new(function(resolve, reject)
     local args = { 'curl' }
 
     -- Use https proxy if available
