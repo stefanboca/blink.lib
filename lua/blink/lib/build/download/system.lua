@@ -1,4 +1,4 @@
-local config = require('blink.lib.download.config')
+local config = require('blink.lib.build.download.config')
 local task = require('blink.lib.task')
 
 local system = {

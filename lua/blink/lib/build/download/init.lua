@@ -14,9 +14,9 @@ local download = {}
 --- @param opts blink.lib.download.Opts
 --- @return blink.lib.Task
 function download.ensure_downloaded(opts)
-  local git = require('blink.lib.download.git')
-  local files = require('blink.lib.download.files').new(opts.root_dir, opts.output_dir, opts.binary_name)
-  require('blink.lib.download.cpath')(files.lib_folder)
+  local git = require('blink.lib.build.download.git')
+  local files = require('blink.lib.build.download.files').new(opts.root_dir, opts.output_dir, opts.binary_name)
+  require('blink.lib.build.download.cpath')(files.lib_folder)
 
   return task
     .all({ git.get_version(files.root_dir), files:get_version() })
@@ -42,9 +42,10 @@ function download.ensure_downloaded(opts)
 
       -- download
       if opts.on_download then vim.schedule(function() opts.on_download() end) end
-      local downloader = require('blink.lib.download.downloader')
+      local downloader = require('blink.lib.build.download.downloader')
       return downloader.download(files, opts.download_url, target_git_tag)
     end)
+    :schedule()
 end
 
 return download

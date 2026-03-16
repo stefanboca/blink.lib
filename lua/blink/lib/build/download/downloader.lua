@@ -1,6 +1,6 @@
 local task = require('blink.lib.task')
-local config = require('blink.lib.download.config')
-local system = require('blink.lib.download.system')
+local config = require('blink.lib.build.download.config')
+local system = require('blink.lib.build.download.system')
 local fs = require('blink.lib.fs')
 
 local downloader = {}
