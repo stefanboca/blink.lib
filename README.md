@@ -20,6 +20,5 @@
     - [x] `blink.lib.build.download`: Binary downloader (e.g. downloading rust binaries)
   - [ ] `blink.lib.lsp`: In-process LSP client wrapper
   - [ ] `blink.lib.git`: Git APIs using [`gix`](https://github.com/Byron/gitoxide)
-  - [ ] `blink.lib.http`: HTTP APIs using [`reqwest`](https://github.com/seanmonstar/reqwest)
   - [ ] `blink.lib.regex`: Regex using [`regex`](https://docs.rs/regex/latest/regex/)
   - [ ] `blink.lib.persist`: KV store with namespaces

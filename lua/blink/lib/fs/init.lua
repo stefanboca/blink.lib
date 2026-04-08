@@ -1,3 +1,4 @@
+local require = require('blink.lib.lazy_require')
 local task = require('blink.lib.task')
 local uv = vim.uv
 
@@ -17,42 +18,23 @@ function fs.open(path, flags, mode)
   end)
 end
 
---- Scans a directory asynchronously
+--- Gets a list of all items in a directory asynchronously
 --- @param path string
---- @return blink.lib.Task
-function fs.list(path)
+--- @return blink.lib.Task<blink.lib.fs.DirEntry[]>
+function fs.dir(path)
   local chunks = {}
-  return fs.list_chunked(path, function(entries) vim.list_extend(chunks, entries) end):map(function() return chunks end)
+  local list_chunked = require('blink.lib.fs.list_chunked')
+  return list_chunked(path, function(entries) vim.list_extend(chunks, entries) end):map(function() return chunks end)
 end
 
---- Scans a directory asynchronously in chunks, calling a provided callback for each directory entry.
---- The task resolves once all entries have been processed.
+--- Gets a list of all items in a directory asynchronously
 --- @param path string
---- @param callback fun(entries: table[]) Callback function called with an array (chunk) of directory entries
---- @return blink.lib.Task
-function fs.list_chunked(path, callback)
-  local chunk_size = 200
+--- @return fun(): blink.lib.Task<blink.lib.fs.DirEntry[]>?
+function fs.dir_iter(path)
+  local chunks = {}
+  local list_chunked = require('blink.lib.fs.list_chunked')
 
-  return task.new(function(resolve, reject)
-    uv.fs_scandir(path, function(err, req)
-      if err or not req then return reject(err) end
-      local entries = {}
-      local function send_chunk()
-        if #entries > 0 then
-          callback(entries)
-          entries = {}
-        end
-      end
-      while true do
-        local name, type = uv.fs_scandir_next(req)
-        if not name then break end
-        table.insert(entries, { name = name, type = type })
-        if #entries >= chunk_size then send_chunk() end
-      end
-      send_chunk()
-      resolve(true)
-    end)
-  end)
+  return list_chunked(path, function(entries) vim.list_extend(chunks, entries) end):map(function() return chunks end)
 end
 
 --- Equivalent to `preadv(2)`. Returns a string where an empty string indicates EOF
@@ -62,10 +44,10 @@ end
 --- @return blink.lib.Task<string>
 function fs.read(path, size, offset)
   return task.new(function(resolve, reject)
-    vim.uv.fs_open(path, 'r', 438, function(open_err, fd)
+    uv.fs_open(path, 'r', 438, function(open_err, fd)
       if open_err or fd == nil then return reject(open_err or 'Unknown error while opening file') end
-      vim.uv.fs_read(fd, size, offset or 0, function(read_err, data)
-        vim.uv.fs_close(fd, function() end)
+      uv.fs_read(fd, size, offset or 0, function(read_err, data)
+        uv.fs_close(fd, function() end)
         if read_err or data == nil then return reject(read_err or 'Unknown error while closing file') end
         return resolve(data)
       end)
@@ -80,10 +62,10 @@ end
 --- @return blink.lib.Task<number>
 function fs.write(path, data, offset)
   return task.new(function(resolve, reject)
-    vim.uv.fs_open(path, 'w', 438, function(open_err, fd)
+    uv.fs_open(path, 'w', 438, function(open_err, fd)
       if open_err or fd == nil then return reject(open_err or 'Unknown error') end
-      vim.uv.fs_write(fd, data, offset or 0, function(write_err, bytes_written)
-        vim.uv.fs_close(fd, function() end)
+      uv.fs_write(fd, data, offset or 0, function(write_err, bytes_written)
+        uv.fs_close(fd, function() end)
         if write_err then return reject(write_err) end
         return resolve(bytes_written)
       end)
@@ -91,11 +73,16 @@ function fs.write(path, data, offset)
   end)
 end
 
+--- Equivalent to `unlink(2)`
+function fs.rm(path)
+  return task.wrap(function(cb) uv.fs_unlink(path, cb) end)
+end
+
 --- @param path string
 --- @return blink.lib.Task<boolean>
 function fs.exists(path)
   return task.new(function(resolve)
-    vim.uv.fs_stat(path, function(err) resolve(not err) end)
+    uv.fs_stat(path, function(err) resolve(not err) end)
   end)
 end
 
@@ -103,7 +90,7 @@ end
 --- @param path string
 --- @return blink.lib.Task<uv.aliases.fs_stat_table>
 function fs.stat(path)
-  return task.wrap(function(cb) vim.uv.fs_stat(path, cb) end)
+  return task.wrap(function(cb) uv.fs_stat(path, cb) end)
 end
 
 --- Creates a directory (non-recursive), no-op if the directory already exists
@@ -116,7 +103,21 @@ function fs.mkdir(path, mode)
     :catch(function() return false end)
     :map(function(exists)
       if exists then return end
-      return task.wrap(function(cb) vim.uv.fs_mkdir(path, mode or 511, cb) end)
+      return task.wrap(function(cb) uv.fs_mkdir(path, mode or 511, cb) end)
+    end)
+end
+
+--- Recursively creates a directory, no-op if the directory already exists
+--- @param path string
+--- @param mode integer? Defaults to `511`
+--- @return blink.lib.Task<nil>
+function fs.mkdirp(path, mode)
+  return fs.stat(path)
+    :map(function(stat) return stat.type == 'directory' end)
+    :catch(function() return false end)
+    :map(function(exists)
+      if exists then return end
+      return fs.mkdirp(fs.dirname(path), mode):map(function() return fs.mkdir(path, mode) end)
     end)
 end
 
@@ -125,8 +126,21 @@ end
 --- @param new_path string
 --- @return blink.lib.Task<nil>
 function fs.rename(old_path, new_path)
-  return task.wrap(function(cb) vim.uv.fs_rename(old_path, new_path, cb) end)
+  return task.wrap(function(cb) uv.fs_rename(old_path, new_path, cb) end)
 end
+
+------------------
+--- Path utilities
+
+fs.basename = vim.fs.basename
+fs.dirname = vim.fs.dirname
+fs.abspath = vim.fs.abspath
+fs.ext = vim.fs.ext
+fs.joinpath = vim.fs.joinpath
+fs.normalize = vim.fs.normalize
+fs.parents = vim.fs.parents
+fs.relpath = vim.fs.relpath
+fs.root = vim.fs.root
 
 --- Ensures a trailing slash is present
 --- @param path string

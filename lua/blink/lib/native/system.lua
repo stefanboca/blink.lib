@@ -1,4 +1,3 @@
-local config = require('blink.lib.build.download.config')
 local task = require('blink.lib.task')
 
 local system = {
@@ -35,13 +34,7 @@ function system.get_info()
 
   if os == 'bsd' then
     local sysname = vim.loop.os_uname().sysname:lower()
-    if sysname == 'freebsd' then
-      os = 'freebsd'
-    elseif sysname == 'openbsd' then
-      os = 'openbsd'
-    elseif sysname == 'netbsd' then
-      os = 'netbsd'
-    end
+    if sysname == 'freebsd' or sysname == 'openbsd' or sysname == 'netbsd' then os = sysname end
   end
 
   local arch = jit.arch:lower():match('arm') and 'arm' or jit.arch:lower():match('x64') and 'x64' or nil
@@ -84,8 +77,6 @@ end
 --- @return blink.lib.Task
 function system.get_triple()
   return task.new(function(resolve, reject)
-    if config.force_system_triple then return resolve(config.force_system_triple) end
-
     local os, arch = system.get_info()
     local triples = system.triples[os]
 
@@ -124,8 +115,6 @@ end
 --- @see system.get_triple
 --- @return string?
 function system.get_triple_sync()
-  if config.force_system_triple then return config.force_system_triple end
-
   local os, arch = system.get_info()
   local triples = system.triples[os]
   if triples == nil then return end

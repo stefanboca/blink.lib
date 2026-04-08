@@ -35,7 +35,7 @@ local task = {
 }
 
 --- @generic T
---- @param fn fun(resolve: fun(result?: T), reject: fun(err: any)): fun()?
+--- @param fn fun(resolve: fun(result?: T), reject: fun(err: any), cancel: fun()): fun()?
 --- @return blink.lib.Task<T>
 function task.new(fn)
   local self = setmetatable({}, { __index = task })
@@ -46,6 +46,12 @@ function task.new(fn)
   self.result = nil
   self.error = nil
 
+  local _clear = function()
+    self._completion_cbs = {}
+    self._failure_cbs = {}
+    self._cancel_cbs = {}
+  end
+
   local resolve = function(result)
     if self.status ~= STATUS.RUNNING then return end
 
@@ -55,6 +61,7 @@ function task.new(fn)
     for _, cb in ipairs(self._completion_cbs) do
       cb(result)
     end
+    _clear()
   end
 
   local reject = function(err)
@@ -66,11 +73,14 @@ function task.new(fn)
     for _, cb in ipairs(self._failure_cbs) do
       cb(err)
     end
+    _clear()
   end
+
+  local cancel = function() self:cancel() end
 
   -- run task callback, if it returns a function, use it for cancellation
 
-  local success, cancel_fn_or_err = pcall(function() return fn(resolve, reject) end)
+  local success, cancel_fn_or_err = pcall(function() return fn(resolve, reject, cancel) end)
 
   if not success then
     reject(cancel_fn_or_err)
@@ -106,6 +116,9 @@ function task:cancel()
   for _, cb in ipairs(self._cancel_cbs) do
     cb()
   end
+  self._completion_cbs = {}
+  self._failure_cbs = {}
+  self._cancel_cbs = {}
 end
 
 --- mappings
@@ -118,28 +131,25 @@ end
 --- @param fn fun(result: T): blink.lib.Task<`U`> | `U` | nil
 --- @return blink.lib.Task<U>
 function task:map(fn)
-  local chained_task
-  chained_task = task.new(function(resolve, reject)
-    self:on_completion(function(result)
+  return task.new(function(resolve, reject, cancel)
+    self:on_resolve(function(result)
       local success, mapped_result = pcall(fn, result)
-      if not success then
-        reject(mapped_result)
-        return
-      end
+      if not success then return reject(mapped_result) end
 
+      -- received a task object, chain it
       if type(mapped_result) == 'table' and mapped_result.__task then
-        mapped_result:on_completion(resolve)
-        mapped_result:on_failure(reject)
-        mapped_result:on_cancel(function() chained_task:cancel() end)
-        return
+        --- @cast mapped_result blink.lib.Task<`U`>
+        mapped_result:on_resolve(resolve)
+        mapped_result:on_reject(reject)
+        mapped_result:on_cancel(cancel)
+      else
+        resolve(mapped_result)
       end
-      resolve(mapped_result)
     end)
-    self:on_failure(reject)
-    self:on_cancel(function() chained_task:cancel() end)
+    self:on_reject(reject)
+    self:on_cancel(cancel)
     return function() self:cancel() end
   end)
-  return chained_task
 end
 
 --- Creates a new task by applying a function to the error of the current task.
@@ -149,49 +159,24 @@ end
 --- @param fn fun(self: blink.lib.Task<T>, err: any): blink.lib.Task<U> | U | nil
 --- @return blink.lib.Task<T | U>
 function task:catch(fn)
-  local chained_task
-  chained_task = task.new(function(resolve, reject)
-    self:on_completion(resolve)
-    self:on_failure(function(err)
+  return task.new(function(resolve, reject, cancel)
+    self:on_resolve(resolve)
+    self:on_reject(function(err)
       local success, mapped_err = pcall(fn, err)
-      if not success then
-        reject(mapped_err)
-        return
-      end
+      if not success then return reject(mapped_err) end
 
+      -- received a task object, chain it
       if type(mapped_err) == 'table' and mapped_err.__task then
-        mapped_err:on_completion(resolve)
-        mapped_err:on_failure(reject)
-        mapped_err:on_cancel(function() chained_task:cancel() end)
+        --- @cast mapped_err blink.lib.Task<`T` | `U`>
+        mapped_err:on_resolve(resolve)
+        mapped_err:on_reject(reject)
+        mapped_err:on_cancel(cancel)
         return
       end
       resolve(mapped_err)
     end)
-    self:on_cancel(function() chained_task:cancel() end)
-    return function() chained_task:cancel() end
-  end)
-  return chained_task
-end
-
---- @generic T
---- @param self blink.lib.Task<T>
---- @return blink.lib.Task<T>
-function task:schedule()
-  return self:map(function(value)
-    return task.new(function(resolve)
-      vim.schedule(function() resolve(value) end)
-    end)
-  end)
-end
-
---- @generic T
---- @param self blink.lib.Task<T>
---- @param ms number
---- @return blink.lib.Task<T>
-function task:timeout(ms)
-  return task.new(function(resolve, reject)
-    vim.defer_fn(function() reject() end, ms)
-    self:map(resolve):catch(reject)
+    self:on_cancel(cancel)
+    return function() self:cancel() end
   end)
 end
 
@@ -201,7 +186,7 @@ end
 --- @param self blink.lib.Task<T>
 --- @param cb fun(result: T)
 --- @return blink.lib.Task<T>
-function task:on_completion(cb)
+function task:on_resolve(cb)
   if self.status == STATUS.COMPLETED then
     cb(self.result)
   elseif self.status == STATUS.RUNNING then
@@ -214,7 +199,7 @@ end
 --- @param self blink.lib.Task<T>
 --- @param cb fun(err: any)
 --- @return blink.lib.Task<T>
-function task:on_failure(cb)
+function task:on_reject(cb)
   if self.status == STATUS.FAILED then
     cb(self.error)
   elseif self.status == STATUS.RUNNING then
@@ -239,9 +224,9 @@ end
 --- utils
 
 --- Awaits all tasks in the given array of tasks.
---- If any of the tasks fail, the returned task will fail.
---- If any of the tasks are cancelled, the returned task will be cancelled.
---- If all tasks are completed, the returned task will resolve with an array of results.
+--- If any child task fails, the parent task will fail, and all other children will be cancelled.
+--- If any child task cancels, the parent task will be cancelled, and all other children will be cancelled.
+--- If all tasks resolve, the parent task will resolve with an array of results.
 --- @generic T
 --- @param tasks blink.lib.Task<T>[]
 --- @return blink.lib.Task<T[]>
@@ -264,57 +249,96 @@ function task.all(tasks)
       resolve(results)
     end
 
+    local function cancel()
+      for _, task in ipairs(tasks) do
+        task:cancel()
+      end
+    end
+
     for idx, task in ipairs(tasks) do
       -- task completed, add result to results table, and resolve if all tasks are done
-      task:on_completion(function(result)
-        results[idx] = result
-        has_resolved[idx] = true
-        resolve_if_completed()
-      end)
-
-      -- one task failed, cancel all other tasks
-      task:on_failure(function(err)
-        reject(err)
-        for _, other_task in ipairs(tasks) do
-          other_task:cancel()
-        end
-      end)
-
-      -- one task was cancelled, cancel all other tasks
-      task:on_cancel(function()
-        for _, sub_task in ipairs(tasks) do
-          sub_task:cancel()
-        end
-        if all_task == nil then
-          vim.schedule(function() all_task:cancel() end)
-        else
-          all_task:cancel()
-        end
-      end)
+      task
+        :on_resolve(function(result)
+          results[idx] = result
+          has_resolved[idx] = true
+          resolve_if_completed()
+        end)
+        -- one task failed, cancel all other tasks
+        :on_reject(function(err)
+          reject(err)
+          cancel()
+        end)
+        -- one task was cancelled, cancel all other tasks
+        :on_cancel(function()
+          cancel()
+          if all_task == nil then
+            vim.schedule(function() all_task:cancel() end)
+          else
+            all_task:cancel()
+          end
+        end)
     end
 
     -- root task cancelled, cancel all inner tasks
-    return function()
-      for _, other_task in ipairs(tasks) do
-        other_task:cancel()
-      end
-    end
+    return cancel
   end)
   return all_task
 end
 
---- Creates a task that resolves with `nil`.
---- @return blink.lib.Task<nil>
-function task.empty()
-  return task.new(function(resolve) resolve(nil) end)
-end
-
 --- Creates a task that resolves with the given value.
 --- @generic T
---- @param val T
+--- @param val? T
 --- @return blink.lib.Task<T>
-function task.identity(val)
+function task.resolve(val)
   return task.new(function(resolve) resolve(val) end)
+end
+
+--- Creates a task that rejects with the given error.
+--- @param err any
+--- @return blink.lib.Task<nil>
+function task.reject(err)
+  return task.new(function(_, reject) reject(err) end)
+end
+
+--- Makes the task infallible, returning true if the task resolved successfully and false if the task rejected.
+--- @generic T
+--- @param self blink.lib.Task<T>
+--- @return blink.lib.Task<boolean>
+function task:ok(fn)
+  return self:map(function() return true end):catch(function() return false end)
+end
+
+--- @generic T
+--- @param self blink.lib.Task<T>
+--- @return blink.lib.Task<T>
+function task:schedule()
+  return self:map(function(value)
+    return task.new(function(resolve)
+      vim.schedule(function() resolve(value) end)
+    end)
+  end)
+end
+
+--- @generic T
+--- @param self blink.lib.Task<T>
+--- @return blink.lib.Task<nil>
+function task:void()
+  return self:map(function() end)
+end
+
+--- Fails if the task doesn't complete within the given number of milliseconds.
+--- @generic T
+--- @param self blink.lib.Task<T>
+--- @param ms number
+--- @return blink.lib.Task<T>
+function task:timeout(ms)
+  return task.new(function(resolve, reject)
+    vim.defer_fn(function()
+      self:cancel()
+      reject('Task timed out after ' .. ms .. ' milliseconds.')
+    end, ms)
+    self:map(resolve):catch(reject)
+  end)
 end
 
 return task

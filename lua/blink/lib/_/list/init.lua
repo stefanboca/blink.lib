@@ -1,0 +1,18 @@
+local require = require('blink.lib.lazy_require')
+return {
+  contains = vim.list_contains,
+  copy = require('blink.lib._.tbl.copy'),
+  dedup = require('blink.lib._.list.dedup'),
+  equal = require('blink.lib._.list.equal'),
+  deep_equal = require('blink.lib._.list.deep_equal'),
+  extend = vim.list_extend,
+  filter = vim.tbl_filter,
+  filter_map = require('blink.lib._.list.filter_map'),
+  find = require('blink.lib._.list.find'),
+  find_idx = require('blink.lib._.list.find_idx'),
+  get = vim.tbl_get,
+  index_of = require('blink.lib._.list.index_of'),
+  map = require('blink.lib._.list.map'),
+  slice = vim.list_slice,
+  reverse = require('blink.lib._.list.reverse'),
+}
