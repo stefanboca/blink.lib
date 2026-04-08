@@ -20,22 +20,32 @@ end
 
 --- Gets a list of all items in a directory asynchronously
 --- @param path string
+--- @param max_entries? integer Maximum number of entries to return
 --- @return blink.lib.Task<blink.lib.fs.DirEntry[]>
-function fs.dir(path)
-  local chunks = {}
-  local list_chunked = require('blink.lib.fs.list_chunked')
-  return list_chunked(path, function(entries) vim.list_extend(chunks, entries) end):map(function() return chunks end)
+function fs.list_dir(path, max_entries)
+  -- TODO: create a helper for working with iters in `blink.lib.task`?
+  return fs.list_dir_iter(path, math.min(max_entries or 200, 200)):map(function(iter)
+    local function next(all_entries)
+      return iter():map(function(entries)
+        -- end of directory
+        if entries == nil then return all_entries end
+
+        -- reached max entries
+        if #all_entries + #entries >= max_entries then
+          vim.list_extend(all_entries, vim.list_slice(entries, 1, max_entries - #all_entries))
+          return all_entries
+        end
+
+        -- continue iter
+        vim.list_extend(all_entries, entries)
+        return next(all_entries)
+      end)
+    end
+    return next({})
+  end)
 end
 
---- Gets a list of all items in a directory asynchronously
---- @param path string
---- @return fun(): blink.lib.Task<blink.lib.fs.DirEntry[]>?
-function fs.dir_iter(path)
-  local chunks = {}
-  local list_chunked = require('blink.lib.fs.list_chunked')
-
-  return list_chunked(path, function(entries) vim.list_extend(chunks, entries) end):map(function() return chunks end)
-end
+fs.list_dir_iter = require('blink.lib.fs.list_dir_iter')
 
 --- Equivalent to `preadv(2)`. Returns a string where an empty string indicates EOF
 --- @param path string
