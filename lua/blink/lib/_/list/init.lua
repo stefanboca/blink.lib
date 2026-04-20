@@ -11,6 +11,7 @@ return {
   find = require('blink.lib._.list.find'),
   find_idx = require('blink.lib._.list.find_idx'),
   get = vim.tbl_get,
+  is = vim.islist,
   index_of = require('blink.lib._.list.index_of'),
   map = require('blink.lib._.list.map'),
   slice = vim.list_slice,

@@ -1,0 +1,352 @@
+--- @class blink.lib.Filter
+--- @field bufnr? number
+
+--- @class blink.lib.Enable
+--- @field enable fun(enable: boolean, filter?: blink.lib.Filter) Enables or disables the module, optionally scoped to a buffer
+--- @field is_enabled fun(filter?: blink.lib.Filter): boolean Returns whether the module is enabled, optionally scoped to a buffer
+
+--- @class blink.lib.EnableOpts
+--- @field alternate_module_names? string[]
+--- @field blocked_buftypes? string[]
+--- @field blocked_filetypes? string[]
+--- @field callback? fun(enable: boolean, filter?: blink.lib.Filter) Note that `filter.bufnr = 0` will be replaced with the current buffer
+
+--- @class blink.lib.config
+local M = { types = {}, utils = {} }
+
+--- @param module_name string
+--- @param opts blink.lib.EnableOpts?
+function M.new_enable(module_name, opts)
+  local blocked_buftypes = {}
+  for _, buftype in ipairs(opts.blocked_buftypes or {}) do
+    blocked_buftypes[buftype] = true
+  end
+  local blocked_filetypes = {}
+  for _, filetype in ipairs(opts.blocked_filetypes or {}) do
+    blocked_filetypes[filetype] = true
+  end
+
+  -- TODO: how to handle cmdline/term?
+
+  return {
+    enable = function(enable, filter)
+      if enable == nil then enable = true end
+
+      if filter ~= nil and filter.bufnr ~= nil then
+        local bufnr = filter.bufnr == 0 and vim.api.nvim_get_current_buf() or filter.bufnr
+        vim.b[bufnr][module_name] = enable
+      else
+        vim.g[module_name] = enable
+      end
+
+      if opts ~= nil and opts.callback ~= nil then opts.callback(enable, filter) end
+    end,
+    is_enabled = function(filter)
+      -- per buffer
+      if filter ~= nil and filter.bufnr ~= nil then
+        local bufnr = filter.bufnr == 0 and vim.api.nvim_get_current_buf() or filter.bufnr
+        if vim.b[bufnr][module_name] ~= nil then return vim.b[bufnr][module_name] == true end
+        if opts.alternate_module_names ~= nil then
+          for _, alt_module_name in ipairs(opts.alternate_module_names or {}) do
+            if vim.b[bufnr][alt_module_name] ~= nil then return vim.b[bufnr][alt_module_name] == true end
+          end
+        end
+
+        if blocked_buftypes[vim.bo[bufnr].buftype] then return false end
+        if blocked_filetypes[vim.bo[bufnr].filetype] then return false end
+      end
+
+      -- global
+      if vim.g[module_name] ~= nil then return vim.g[module_name] ~= false end
+      for _, alt_module_name in ipairs(opts.alternate_module_names or {}) do
+        if vim.g[alt_module_name] ~= nil then return vim.g[alt_module_name] ~= false end
+      end
+      return true
+    end,
+  }
+end
+
+--- @alias blink.lib.ConfigSchemaLiteralType 'string' | 'number' | 'boolean' | 'function' | 'table' | 'nil' | 'any'
+--- @alias blink.lib.ConfigSchemaType blink.lib.ConfigSchemaLiteralType | blink.lib.ConfigSchemaValidator | (blink.lib.ConfigSchemaLiteralType | blink.lib.ConfigSchemaValidator)[]
+
+--- @class blink.lib.ConfigSchemaField
+--- @field [1] any Default value
+--- @field [2] blink.lib.ConfigSchemaType Allowed types or validator
+
+--- @alias blink.lib.ConfigSchema { [string]: blink.lib.ConfigSchema | blink.lib.ConfigSchemaField }
+
+-- cache mode for slightly faster access
+-- TODO: measure this, also check if it's worth caching bufnr
+local mode = vim.api.nvim_get_mode().mode
+vim.api.nvim_create_autocmd('ModeChanged', {
+  group = vim.api.nvim_create_augroup('blink.lib.config', {}),
+  callback = function() mode = vim.api.nvim_get_mode().mode end,
+})
+
+local special_modes = {
+  normal = { 'n', 'no', 'nov', 'noV', 'niI', 'niR', 'niV', 'nt', 'ntT' },
+  visual = { 'v', 'V', '\x16', 'vs', 'Vs', '\x16s' },
+  select = { 's', 'S', '\x13' },
+  insert = { 'i', 'ic', 'ix' },
+  replace = { 'R', 'Rc', 'Rx', 'Rv', 'Rvc', 'Rvx' },
+  cmdline = { 'c', 'cv', 'ce', 'cr' },
+  terminal = { 't' },
+}
+
+--- @param global_key string Key used for getting configs from `vim.g` and `vim.b`
+--- @param schema blink.lib.ConfigSchema
+--- @param validate_defaults boolean? Validate the default values, defaults to true
+--- @return blink.lib.Config
+function M.new(global_key, schema, validate_defaults)
+  local config = M.utils.extract_default(schema)
+  local per_mode = {}
+  local per_bufnr = {}
+  if validate_defaults ~= false then M.validate(schema, config) end
+
+  --- @param path string[]
+  local function get_metatable(inner_schema, path)
+    local metatables = {}
+    for key, field in pairs(inner_schema) do
+      local nested_path = vim.list_extend({}, path)
+      table.insert(nested_path, key)
+      if field[1] == nil then metatables[key] = get_metatable(inner_schema[key], nested_path) end
+    end
+
+    return setmetatable({}, {
+      __index = function(_, key)
+        if metatables[key] ~= nil then return metatables[key] end
+
+        if mode:sub(1, 1) ~= 'c' then
+          local buffer_local_value = M.utils.tbl_get(vim.b[global_key], path, key)
+          if buffer_value ~= nil then return buffer_value end
+
+          local buffer_value = M.utils.tbl_get(per_bufnr[vim.api.nvim_get_current_buf()], path, key)
+          if buffer_value ~= nil then return buffer_value end
+        end
+
+        local mode_value = M.utils.tbl_get(per_mode[mode], path, key)
+        if mode_value ~= nil then return mode_value end
+
+        local global_value = M.utils.tbl_get(vim.g[global_key], path, key)
+        if global_value ~= nil then return global_value end
+
+        return M.utils.tbl_get(config, path, key)
+      end,
+
+      -- Merge with existing config
+      __call = function(_, tbl, opts)
+        if #path > 0 then error('Cannot call a nested config schema') end
+
+        opts = opts or {}
+        if opts.bufnr ~= nil and opts.mode ~= nil then error('Cannot specify both `bufnr` and `mode` options') end
+
+        tbl = tbl or {}
+        local new_config = vim.tbl_deep_extend('force', config, tbl)
+        M.validate(schema, new_config)
+
+        -- per mode
+        if opts.mode ~= nil then
+          local modes = special_modes[mode] or { mode }
+          for _, mode in ipairs(modes) do
+            per_mode[opts.mode] = vim.tbl_deep_extend('force', per_mode[opts.mode] or {}, tbl)
+          end
+        -- per buffer
+        elseif opts.bufnr ~= nil then
+          per_bufnr[opts.bufnr] = vim.tbl_deep_extend('force', per_bufnr[opts.bufnr] or {}, tbl)
+        -- global
+        else
+          config = new_config
+        end
+      end,
+    })
+  end
+
+  return get_metatable(schema, {})
+end
+
+--- @param schema blink.lib.ConfigSchema
+--- @param tbl table
+--- @param parent_path string? For internal use only
+function M.validate(schema, tbl, parent_path)
+  parent_path = parent_path or ''
+
+  for key in next, tbl do
+    if schema[key] == nil then error(parent_path .. tostring(key) .. ': unknown field') end
+  end
+
+  for key, field in pairs(schema) do
+    -- nested schema
+    if field[2] == nil then
+      local nested_tbl = tbl[key]
+      if type(nested_tbl) ~= 'table' then
+        local path = parent_path .. key
+        error(path .. ': expected nested table, got ' .. M.utils.describe_value(tbl[key]))
+      end
+      M.validate(field, tbl[key], parent_path .. key .. '.')
+
+    -- field type
+    else
+      local t = field[2]
+      local ok, inner_err = M.utils.validate_value(tbl[key], t)
+      if not ok then
+        local path = parent_path .. key
+        if inner_err then
+          error(path .. inner_err)
+        else
+          error(path .. ': expected ' .. M.utils.describe_type(t) .. ', got ' .. M.utils.describe_value(tbl[key]))
+        end
+      end
+    end
+  end
+end
+
+-------------------
+--- TYPES
+-------------------
+
+--- @class blink.lib.ConfigSchemaValidator
+local Validator = {}
+Validator.__index = Validator
+
+--- @param desc string
+--- @param validator fun(val): boolean, string?
+--- @return blink.lib.ConfigSchemaValidator
+function M.types.validator(desc, validator) return setmetatable({ desc = desc, validator = validator }, Validator) end
+
+--- @return boolean
+function M.types.is_validator(v) return getmetatable(v) == Validator end
+
+--- Validates that the value is one of the given variants
+--- @param variants (string | number | boolean)[]
+--- @return blink.lib.ConfigSchemaValidator
+function M.types.enum(variants)
+  return M.types.validator(table.concat(vim.tbl_map(M.utils.describe_literal, variants), ' | '), function(val)
+    for _, variant in ipairs(variants) do
+      if val == variant then return true end
+    end
+    return false
+  end)
+end
+
+--- Validates that the value is a list of the given type
+--- @param inner_type blink.lib.ConfigSchemaType
+--- @return blink.lib.ConfigSchemaValidator
+function M.types.list(inner_type)
+  return M.types.validator('list(' .. M.utils.describe_type(inner_type) .. ')', function(val)
+    if not vim.islist(val) then return false end
+    for _, inner_val in ipairs(val) do
+      local ok = M.utils.validate_value(inner_val, inner_type)
+      if ok == false then
+        return false,
+          '[' .. i .. ']: expected ' .. M.utils.describe_type(inner_type) .. ', got ' .. M.utils.describe_value(
+            inner_val
+          )
+      end
+    end
+    return true
+  end)
+end
+
+function M.types.map(key_type, value_type)
+  return M.types.validator(
+    'map(' .. M.utils.describe_type(key_type) .. ', ' .. M.utils.describe_type(value_type) .. ')',
+    function(val)
+      if not type(val) == 'table' then return false end
+      for k, v in pairs(val) do
+        local ok = M.utils.validate_value(k, key_type)
+        if ok == false then
+          return false,
+            ': expected all keys to be ' .. M.utils.describe_type(key_type) .. ', got ' .. M.utils.describe_value(k)
+        end
+        local ok = M.utils.validate_value(v, value_type)
+        if ok == false then
+          return false,
+            '['
+              .. M.utils.describe_literal(k)
+              .. ']: expected '
+              .. M.utils.describe_type(value_type)
+              .. ', got '
+              .. M.utils.describe_value(v)
+        end
+      end
+      return true
+    end
+  )
+end
+
+-------------------
+--- UTILS
+-------------------
+
+function M.utils.describe_literal(val)
+  if type(val) == 'string' then return '"' .. val .. '"' end
+  return tostring(val)
+end
+
+function M.utils.describe_value(val) return vim.inspect(val, { depth = 1, newline = ' ', indent = '' }) end
+
+--- Turn a type spec (list of strings/validators) into a description
+--- e.g. { 'function', enum({...}) } -> 'function | "a" | "b" | "c"'
+--- @param t blink.lib.ConfigSchemaType
+function M.utils.describe_type(t)
+  if M.types.is_validator(t) then return t.desc end
+
+  if type(t) ~= 'table' then t = { t } end
+  local parts = {}
+  for _, t in ipairs(t) do
+    if M.types.is_validator(t) then
+      table.insert(parts, t.desc)
+    else
+      table.insert(parts, t) -- plain type string like 'function', 'number'
+    end
+  end
+  return table.concat(parts, ' | ')
+end
+
+--- Check a value against a type spec (list of strings/validators)
+--- @param val any
+--- @param t blink.lib.ConfigSchemaType
+--- @return boolean
+function M.utils.validate_value(val, t)
+  if M.types.is_validator(t) then
+    local ok, err = t.validator(val)
+    return ok
+  end
+
+  if type(t) ~= 'table' then t = { t } end
+  for _, t in ipairs(t) do
+    if M.types.is_validator(t) then
+      local ok, err = t.validator(val)
+      if ok then return true end
+    elseif type(val) == t then
+      return true
+    end
+  end
+  return false
+end
+
+--- Extracts the default values from a schema
+--- @param schema blink.lib.ConfigSchema
+--- @return table
+function M.utils.extract_default(schema)
+  local default = {}
+  for key, field in pairs(schema) do
+    if field[2] ~= nil then
+      default[key] = field[1]
+    else
+      default[key] = M.utils.extract_default(field)
+    end
+  end
+  return default
+end
+
+function M.utils.tbl_get(tbl, path, key)
+  for _, key in ipairs(path) do
+    if type(tbl) ~= 'table' then return nil end
+    tbl = tbl[key]
+  end
+  if type(tbl) ~= 'table' then return nil end
+  return tbl[key]
+end
+
+return M
