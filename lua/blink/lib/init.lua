@@ -8,4 +8,11 @@ return {
   task = require('blink.lib.task'),
   nvim = require('blink.lib.nvim'),
   timer = require('blink.lib.timer'),
+
+  -- utils
+  require = require,
+  list = require('blink.lib._.list'),
+  tbl = require('blink.lib._.tbl'),
+  is_not_nil = function(v) return v ~= nil and v ~= vim.NIL end,
+  buffer_size = require('blink.lib._.buffer_size'),
 }
