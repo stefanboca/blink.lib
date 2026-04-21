@@ -78,12 +78,9 @@ function platform.triple(os, arch, libc)
   local triples = platform.triples[os]
   if triples == nil then return end
 
-  if os == 'linux' then
-    local triple = triples[arch]
-    if type(triple) ~= 'function' then return triple end
-    return triple(libc)
-  end
-  return triples[arch]
+  local triple = triples[arch]
+  if type(triple) ~= 'function' then return triple end
+  return triple(libc)
 end
 
 return platform
