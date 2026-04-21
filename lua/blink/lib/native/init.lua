@@ -1,73 +1,104 @@
--- Need a way to know if the native library is up to date
--- OR
--- if the user built the native library outside of the plugin
--- (ideally synchronously)
+local os = jit.os:lower()
+local lib_extension = (os == 'osx' or os == 'mac') and '.dylib' or os == 'windows' and '.dll' or '.so'
 
 --- @class blink.lib.native
 local native = {}
 
-function native.new() end
-
---- @return { tag: string | nil, commit: string }
-function native.git_version() end
-
---- @return { commit: string }
-function native.build_version() end
-
---- @return 'download' | 'build' | 'unknown' | nil
-function native.build_type() end
-
---- @return boolean | 'unknown'
-function native.is_up_to_date() end
-
-function native.load() end
-
---- @param opts blink.lib.download.Opts
---- @return blink.lib.Task
-function native.download(opts) return require('blink.lib.native.download').download(opts) end
-
---- @param opts blink.lib.download.PresetOpts
---- @return blink.lib.Task
-function native.download_rust(opts) return require('blink.lib.native.download').download_rust(opts) end
-
---- @param opts blink.lib.build.Opts
---- @return blink.lib.Task<nil>
-function native.build(opts)
-  return require('blink.lib.native.build').build(opts):map(function() end)
+--- Get information about the current platform
+--- @return blink.lib.native.Platform
+function native.platform()
+  local platform = require('blink.lib.native.platform')
+  local os = platform.os()
+  local arch = platform.arch()
+  local libc = platform.libc(os)
+  local triple = platform.triple(os, arch, libc)
+  return { os = os, arch = arch, libc = libc, triple = triple }
 end
 
---- @param opts blink.lib.build.rust.Opts
---- @return blink.lib.Task<nil>
-function native.build_rust(opts) return require('blink.lib.native.build').build_rust(opts) end
+--- @param name string Name of the artifact to be used when requiring it (e.g. 'blink_cmp_fuzzy')
+--- @param commit_hash string Commit hash of the repository
+--- @param dir? string Override the default base path of `vim.fn.stdpath('data') .. '/site/lib/'`
+--- @return string library_path
+function native.library_path(name, commit_hash, dir)
+  dir = dir and vim.fs.normalize(dir) or (vim.fn.stdpath('data') .. '/site/lib')
+  return dir .. '/lib' .. name .. lib_extension .. '.' .. commit_hash:sub(1, 7)
+end
 
-local function example()
-  local native = require('blink.lib.native').new('blink.cmp', 'rust')
-  local logger = native.logger
+--- @param name string Name of the library to load (e.g. 'blink_cmp_fuzzy')
+--- @param commit_hash string Commit hash of the library to load (e.g. 'e5678fe566e86553403b3129a3684389c84fafb5')
+--- @return any
+function native.load(name, commit_hash)
+  if package.loaded[name] then return package.loaded[name] end
 
-  -- up to date or the version is unknown because the user placed the library manually
-  if native.is_up_to_date() then return native:load() end
-
-  -- on a git tag, download the binary
-  if native.git_version().tag ~= nil then
-    logger:notify(vim.log.levels.INFO, { { 'Downloading prebuilt binary...' } })
-    return native
-      :download({
-        download_url = function(version, system_triple, extension)
-          return 'https://github.com/saghen/blink.pairs/releases/download/'
-            .. version
-            .. '/'
-            .. system_triple
-            .. extension
-        end,
-        version = native.git_version().tag,
-      })
-      :map(function() return native:load() end)
+  local short_commit_hash = commit_hash:sub(1, 7)
+  -- first try to load from $runtimepath/lib/lib*.so.hash
+  local lib_paths = vim.api.nvim_get_runtime_file('lib/lib' .. name .. lib_extension .. '.' .. short_commit_hash, true)
+  if #lib_paths == 0 then
+    -- fallback to $runtimepath/lib/lib*.so
+    lib_paths = vim.api.nvim_get_runtime_file('lib/lib' .. name .. lib_extension, true)
+    if #lib_paths == 0 then error('Failed to find library in $runtimepath/lib/lib*: ' .. name) end
+  end
+  if #lib_paths > 1 then
+    error('Found multiple instances of the same library (' .. name .. '): ' .. table.concat(lib_paths, ', '))
   end
 
-  -- build the library from source
-  return native.build():map(function() return native:load() end)
+  -- load the library
+  local loader, err = package.loadlib(lib_paths[1], 'luaopen_' .. name)
+  if err or not loader then return error('Failed to load library: ' .. err or 'unknown error') end
+  return loader()
 end
 
-example()
+--- @param path string Path to the repository root or some path inside the repository
+--- @return string commit_hash for example 'e5678fe566e86553403b3129a3684389c84fafb5'
+function native.git_commit(path)
+  --- @param p string
+  --- @return string?
+  function read_file(p)
+    local fd, err = vim.uv.fs_open(p, 'r', 438) -- 438 = 0666
+    if not fd then error(err) end
+    local content = vim.uv.fs_read(fd, 1024, 0)
+    vim.uv.fs_close(fd)
+    return content
+  end
+
+  -- Walk up from the module file to find the .git directory
+  local git_dir = vim.fs.find('.git', { upward = true, path = vim.fs.normalize(path), type = 'directory' })[1]
+  if not git_dir then error('Failed to find .git directory for path: ' .. path) end
+
+  -- Read HEAD
+  local head_path = git_dir .. '/HEAD'
+  local head_content = read_file(head_path)
+  if not head_content then error('Failed to read ' .. head_path) end
+
+  -- If HEAD is a direct commit hash (detached HEAD)
+  if head_content:match('^%x+$') then return head_content end
+
+  -- HEAD contains a ref, e.g. "ref: refs/heads/main"
+  local ref = head_content:match('^ref: (.+)$')
+  if not ref then error('Failed to parse HEAD: ' .. head_content) end
+  ref = assert(ref:match('^%s*(.-)%s*$'))
+
+  -- Try to read the loose ref file (e.g. .git/refs/heads/main)
+  local ref_path = git_dir .. '/' .. ref
+  local ref_content = read_file(ref_path)
+  if ref_content then return ref_content end
+
+  -- Fallback to git CLI
+  local result = vim.system({ 'git', 'rev-parse', 'HEAD' }, { cwd = path }):wait(1000)
+  if result.code ~= 0 or result.stdout == nil then error('Failed to get git commit: ' .. (result.stderr or '')) end
+  return result.stdout
+end
+
+--- @param path string Path to the repository root or some path inside the repository
+--- @return string tag for example 'v0.0.1'
+function native.git_tag(path)
+  local process = vim.system({ 'git', 'describe', '--tags', '--exact-match' }, { cwd = path }):wait(1000)
+  if process.code == 0 then return process.stdout:match('(%w+)\n') end
+end
+
+--- @param url string
+--- @param path string Where to save the library
+--- @param callback fun(err: string)
+function native.download(url, path, callback) vim.net.request(url, { outpath = path }, callback) end
 
 return native
