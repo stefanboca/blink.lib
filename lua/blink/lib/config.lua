@@ -95,13 +95,13 @@ local special_modes = {
 
 --- @param global_key string Key used for getting configs from `vim.g` and `vim.b`
 --- @param schema blink.lib.ConfigSchema
---- @param validate_defaults boolean? Validate the default values, defaults to true
+--- @param opts? { validate?: boolean } Validate defaults to true
 --- @return blink.lib.Config
-function M.new(global_key, schema, validate_defaults)
+function M.new(global_key, schema, opts)
   local config = M.utils.extract_default(schema)
   local per_mode = {}
   local per_bufnr = {}
-  if validate_defaults ~= false then M.validate(schema, config) end
+  if not opts or opts.validate ~= false then M.validate(schema, config) end
 
   --- @param path string[]
   local function get_metatable(inner_schema, path)
@@ -141,8 +141,7 @@ function M.new(global_key, schema, validate_defaults)
         if opts.bufnr ~= nil and opts.mode ~= nil then error('Cannot specify both `bufnr` and `mode` options') end
 
         tbl = tbl or {}
-        local new_config = vim.tbl_deep_extend('force', config, tbl)
-        M.validate(schema, new_config)
+        if opts.validate ~= false then M.validate(schema, vim.tbl_deep_extend('force', config, tbl)) end
 
         -- per mode
         if opts.mode ~= nil then
@@ -155,7 +154,7 @@ function M.new(global_key, schema, validate_defaults)
           per_bufnr[opts.bufnr] = vim.tbl_deep_extend('force', per_bufnr[opts.bufnr] or {}, tbl)
         -- global
         else
-          config = new_config
+          config = vim.tbl_deep_extend('force', config, tbl)
         end
       end,
     })
