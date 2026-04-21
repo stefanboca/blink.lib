@@ -109,7 +109,7 @@ function M.new(global_key, schema, validate_defaults)
     for key, field in pairs(inner_schema) do
       local nested_path = vim.list_extend({}, path)
       table.insert(nested_path, key)
-      if field[1] == nil then metatables[key] = get_metatable(inner_schema[key], nested_path) end
+      if field[2] == nil then metatables[key] = get_metatable(inner_schema[key], nested_path) end
     end
 
     return setmetatable({}, {
@@ -118,7 +118,7 @@ function M.new(global_key, schema, validate_defaults)
 
         if mode:sub(1, 1) ~= 'c' then
           local buffer_local_value = M.utils.tbl_get(vim.b[global_key], path, key)
-          if buffer_value ~= nil then return buffer_value end
+          if buffer_local_value ~= nil then return buffer_local_value end
 
           local buffer_value = M.utils.tbl_get(per_bufnr[vim.api.nvim_get_current_buf()], path, key)
           if buffer_value ~= nil then return buffer_value end
@@ -146,9 +146,9 @@ function M.new(global_key, schema, validate_defaults)
 
         -- per mode
         if opts.mode ~= nil then
-          local modes = special_modes[mode] or { mode }
+          local modes = special_modes[opts.mode] or { opts.mode }
           for _, mode in ipairs(modes) do
-            per_mode[opts.mode] = vim.tbl_deep_extend('force', per_mode[opts.mode] or {}, tbl)
+            per_mode[mode] = vim.tbl_deep_extend('force', per_mode[mode] or {}, tbl)
           end
         -- per buffer
         elseif opts.bufnr ~= nil then
@@ -234,7 +234,7 @@ end
 function M.types.list(inner_type)
   return M.types.validator('list(' .. M.utils.describe_type(inner_type) .. ')', function(val)
     if not vim.islist(val) then return false end
-    for _, inner_val in ipairs(val) do
+    for i, inner_val in ipairs(val) do
       local ok = M.utils.validate_value(inner_val, inner_type)
       if ok == false then
         return false,
@@ -342,10 +342,10 @@ end
 
 function M.utils.tbl_get(tbl, path, key)
   for _, key in ipairs(path) do
-    if type(tbl) ~= 'table' then return nil end
+    if type(tbl) ~= 'table' then return end
     tbl = tbl[key]
   end
-  if type(tbl) ~= 'table' then return nil end
+  if type(tbl) ~= 'table' then return end
   return tbl[key]
 end
 
