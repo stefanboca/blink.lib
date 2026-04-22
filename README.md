@@ -7,6 +7,16 @@
 
 **blink.lib** provides generic utilities for all other blink plugins, aka all the code I don't want to copy between my plugins :)
 
+## Installation
+
+```lua
+-- lazy.nvim
+{ 'saghen/blink.lib' }
+
+-- vim.pack
+vim.pack.add({ 'https://github.com/saghen/blink.lib' })
+```
+
 ## Roadmap
 
 - [ ] `blink.lib`: Utils (lazy_require, dedup, debounce, truncate, dedent, copy, slice, estimate buffer size, ...) with all other modules exported (lazily)
