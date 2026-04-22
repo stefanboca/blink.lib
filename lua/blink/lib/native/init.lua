@@ -90,6 +90,14 @@ function native.git_commit(path)
   return result.stdout
 end
 
+--- Unlike `git_commit`, this function will simply return `nil` if the git commit cannot be determined
+--- @param path string Path to the repository root or some path inside the repository
+--- @return string? commit_hash for example 'e5678fe566e86553403b3129a3684389c84fafb5'
+function native.try_git_commit(path)
+  local success, commit_hash = pcall(native.git_commit, path)
+  if success then return commit_hash end
+end
+
 --- @param path string Path to the repository root or some path inside the repository
 --- @return string tag for example 'v0.0.1'
 function native.git_tag(path)
