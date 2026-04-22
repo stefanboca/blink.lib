@@ -26,7 +26,6 @@ local levels_to_str = {
 ---
 --- @class blink.lib.LoggerFileOptions : blink.lib.LoggerConsoleOptions
 --- @field path? string
---- @field include_notify? boolean Whether to include `logger:notify` messages in the log file, defaults to `true`
 
 --- @class blink.lib.Logger
 --- @field path string
@@ -142,7 +141,7 @@ function logger:error(msg, ...) self:log(vim.log.levels.ERROR, msg, ...) end
 --- ```
 ---
 --- @param level number Level from `vim.log.levels.*`
---- @param chunks [string, integer|string?][] List of `[text, hl_group]` pairs, where each is a `text` string highlighted by
+--- @param chunks string | [string, integer|string?][] List of `[text, hl_group]` pairs, where each is a `text` string highlighted by
 --- the (optional) name or ID `hl_group`.
 --- @param history boolean? if false, do not add to `message-history`.
 --- @param opts vim.api.keyset.echo_opts? Optional parameters.
@@ -162,15 +161,6 @@ function logger:error(msg, ...) self:log(vim.log.levels.ERROR, msg, ...) end
 --- - percent: How much progress is done on the progress message
 --- - data: dictionary containing additional information
 function logger:notify(level, chunks, history, opts)
-  -- write to file if enabled
-  if self.opts.file.include_notify and self.opts.file.min_log_level <= level then
-    local text = 'NOTIFY ' .. self.opts.module .. ' '
-    for _, chunk in ipairs(chunks) do
-      text = text .. chunk[1]
-    end
-    self:write_to_file(text .. '\n')
-  end
-
   if self.opts.console.min_log_level > level then return end
 
   -- preprend module name to message
@@ -180,6 +170,7 @@ function logger:notify(level, chunks, history, opts)
   elseif level == vim.log.levels.INFO then
     header_hl = 'DiagnosticVirtualTextInfo'
   end
+  if type(chunks) == 'string' then chunks = { { chunks } } end
   table.insert(chunks, 1, { ' ' .. self.opts.module .. ' ', header_hl })
   table.insert(chunks, 2, { ' ' })
 
@@ -204,7 +195,22 @@ function logger:write_to_file(msg)
     return
   end
 
-  vim.uv.fs_write(self.fd, msg, nil, function(write_err)
+  table.insert(self.logs_queue, msg)
+  if self.writing then return end
+  self:flush_write_queue()
+end
+
+function logger:flush_write_queue()
+  if self.failed or self.fd == nil or #self.logs_queue == 0 then
+    self.writing = false
+    return
+  end
+
+  self.writing = true
+  local batch = table.concat(self.logs_queue)
+  self.logs_queue = {}
+
+  vim.uv.fs_write(self.fd, batch, nil, function(write_err)
     if write_err ~= nil and not self.failed then
       self.failed = true
       vim.notify(
@@ -216,7 +222,10 @@ function logger:write_to_file(msg)
           .. write_err,
         vim.log.levels.ERROR
       )
+      return
     end
+    -- drain any messages that arrived while we were writing
+    self:flush_write_queue()
   end)
 end
 
@@ -236,7 +245,6 @@ function M.new(opts)
   opts.file.enabled = opts.file.enabled == nil or opts.file.enabled
   opts.file.min_log_level = opts.file.min_log_level or vim.log.levels.INFO
   opts.file.path = opts.file.path or vim.fn.stdpath('log') .. '/' .. opts.module .. '.log'
-  opts.file.include_notify = opts.file.include_notify == nil or opts.file.include_notify
 
   local self = setmetatable({
     opts = opts,
