@@ -2,9 +2,6 @@
   <h2 align="center">Blink Lib (blink.lib)</h2>
 </p>
 
-> [!WARNING]
-> Not ready for use
-
 **blink.lib** provides generic utilities for all other blink plugins, aka all the code I don't want to copy between my plugins :)
 
 ## Installation
@@ -18,6 +15,8 @@ vim.pack.add({ 'https://github.com/saghen/blink.lib' })
 ```
 
 ## Roadmap
+
+All APIs are unstable until v1
 
 - [ ] `blink.lib`: Utils (lazy_require, dedup, debounce, truncate, dedent, copy, slice, estimate buffer size, ...) with all other modules exported (lazily)
   - [x] `blink.lib.nvim`: Re-exported nvim APIs (`nvim.create_buf(...)`)
