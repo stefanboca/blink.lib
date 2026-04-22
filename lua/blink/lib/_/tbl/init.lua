@@ -9,6 +9,8 @@ return {
   get = vim.tbl_get,
   keys = vim.tbl_keys,
   map = vim.tbl_map,
+  omit = require('blink.lib._.tbl.omit'),
+  pick = require('blink.lib._.tbl.pick'),
   slice = vim.list_slice,
   values = vim.tbl_values,
 }
