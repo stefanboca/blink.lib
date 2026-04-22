@@ -137,7 +137,7 @@ function logger:error(msg, ...) self:log(vim.log.levels.ERROR, msg, ...) end
 ---
 --- Example:
 --- ```lua
---- log:notify({ { 'chunk1-line1\nchunk1-line2\n' }, { 'chunk2-line1' } }, true, {})
+--- log:notify(vim.log.levels.INFO, { { 'chunk1-line1\nchunk1-line2\n' }, { 'chunk2-line1' } }, true, {})
 --- ```
 ---
 --- @param level number Level from `vim.log.levels.*`
