@@ -341,4 +341,26 @@ function task:timeout(ms)
   end)
 end
 
+--- Blocks until the task completes, fails, or is cancelled.
+--- Must be called from the main thread (not from a fast callback).
+--- @generic T
+--- @param self blink.lib.Task<T>
+--- @param timeout number Timeout in milliseconds
+--- @param interval? number Polling interval in milliseconds (default: 20)
+--- @return T? result
+function task:wait(timeout)
+  vim.wait(timeout, function() return self.status ~= STATUS.RUNNING end, 20)
+
+  if self.status == STATUS.COMPLETED then
+    return self.result
+  elseif self.status == STATUS.FAILED then
+    error(self.error)
+  elseif self.status == STATUS.CANCELLED then
+    error('Task was cancelled')
+  else
+    self:cancel()
+    error('Task timed out after ' .. timeout .. ' milliseconds')
+  end
+end
+
 return task
