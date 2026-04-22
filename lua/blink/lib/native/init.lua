@@ -25,14 +25,15 @@ function native.library_path(name, commit_hash, dir)
 end
 
 --- @param name string Name of the library to load (e.g. 'blink_cmp_fuzzy')
---- @param commit_hash string Commit hash of the library to load (e.g. 'e5678fe566e86553403b3129a3684389c84fafb5')
+--- @param commit_hash string? Commit hash of the library to load (e.g. 'e5678fe566e86553403b3129a3684389c84fafb5'). If missing, `lib$name.so.hash` will be skipped, and only `lib$name.so` will be attempted.
 --- @return any
 function native.load(name, commit_hash)
   if package.loaded[name] then return package.loaded[name] end
 
-  local short_commit_hash = commit_hash:sub(1, 7)
   -- first try to load from $runtimepath/lib/lib*.so.hash
-  local lib_paths = vim.api.nvim_get_runtime_file('lib/lib' .. name .. lib_extension .. '.' .. short_commit_hash, true)
+  local lib_paths = commit_hash ~= nil
+      and vim.api.nvim_get_runtime_file('lib/lib' .. name .. lib_extension .. '.' .. commit_hash:sub(1, 7), true)
+    or {}
   if #lib_paths == 0 then
     -- fallback to $runtimepath/lib/lib*.so
     lib_paths = vim.api.nvim_get_runtime_file('lib/lib' .. name .. lib_extension, true)
