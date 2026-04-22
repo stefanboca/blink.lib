@@ -6,6 +6,7 @@ return {
   fs = require('blink.lib.fs'),
   log = require('blink.lib.log'),
   task = require('blink.lib.task'),
+  native = require('blink.lib.native'),
   nvim = require('blink.lib.nvim'),
   timer = require('blink.lib.timer'),
 

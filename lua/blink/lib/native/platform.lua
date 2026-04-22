@@ -31,12 +31,14 @@ local platform = {
 --- @alias blink.lib.native.Arch 'x86'|'x64'|'arm'|'arm64'|'arm64be'|'ppc'|'ppc64'|'ppc64le'|'mips'|'mipsel'|'mips64'|'mips64el'|string
 --- @alias blink.lib.native.Libc 'gnu'|'musl'
 --- @alias blink.lib.native.Triple 'aarch64-apple-darwin'|'x86_64-apple-darwin'|'aarch64-pc-windows-msvc'|'x86_64-pc-windows-msvc'|'aarch64-unknown-linux-gnu'|'aarch64-unknown-linux-musl'|'aarch64-unknown-freebsd'|'x86_64-unknown-linux-gnu'|'x86_64-unknown-linux-musl'|'x86_64-unknown-freebsd'|'x86_64-unknown-openbsd'|'aarch64-unknown-openbsd'
+--- @alias blink.lib.native.LibExtension '.so'|'.dylib'|'.dll'
 
 --- @class blink.lib.native.Platform
 --- @field os blink.lib.native.OS
 --- @field arch blink.lib.native.Arch
 --- @field libc? blink.lib.native.Libc present when `os` is `'linux'`
 --- @field triple? string present for known platforms, otherwise `nil`
+--- @field lib_extension blink.lib.native.LibExtension
 
 --- Gets the operating system and architecture of the current system
 --- @return 'windows'|'linux'|'mac'|'freebsd'|'openbsd'|'netbsd'|'bsd'|'other'
