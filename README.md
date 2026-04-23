@@ -68,7 +68,7 @@ lib.tbl.omit({ a = 1, b = 2, c = 3 }, { 'a', 'c' }) -- { b = 2 }
 -- ...
 ```
 
-## `blink.lib.config`
+### `blink.lib.config`
 
 Schema based config validation with dynamic per-mode/buffer lookup. Merges `vim.g[module]`, `vim.b[module]`, per-mode/bufnr configs and top level config.
 
@@ -100,7 +100,7 @@ print(config.other_setting) -- { 3, 'foo' } (from config(...))
 print(config.nested.setting) -- function (from config(..., { bufnr = 0 }))
 ```
 
-## `blink.lib.native`
+### `blink.lib.native`
 
 Most blink plugins use native libraries which are fetched from github releases when on a git tag (versioned release) or built on the user's device. This module provides utilities for resolving/downloading/building/loading libraries, fetching platform information and reading git commit/tags.
 
@@ -108,6 +108,8 @@ For a production example, see [`blink.cmp's implementation`](https://github.com/
 
 ```lua
 local native = require('blink.lib.native')
+local logger = require('blink.lib.log').new({ module = 'my_module' })
+
 local current_file = debug.getinfo(1, 'S').source:sub(2)
 local lib_name = 'some_library'
 local your_repo = 'foobar/some_repo'
@@ -121,8 +123,6 @@ function library_available()
 end
 
 function build(opts)
-  if cmp.library_available() then return end
-
   local platform = native.platform()
   local repo_root = native.git_repo_root(current_file)
   if repo_root == nil then error('Missing git repo root, did you install via a package manager?') end
@@ -183,6 +183,8 @@ local tag = lib.task.new(function(resolve, reject)
   end)
 end):wait(1000)
 ```
+
+Note that lua language server cannot infer the type of the task from the `resolve` call. You may need to add the type annotation explicitly via an `@return` annotation on a function returning the task, or via the `@cast/@type` annotations on the task variable.
 
 ### `blink.lib.fs`
 
@@ -257,5 +259,3 @@ new_timer:start(0, 0, function() print('hello') end)
 new_timer:stop()
 -- timer stopped and scheduled callback cancelled
 ```
-
-Note that lua language server cannot infer the type of the task from the `resolve` call. You may need to add the type annotation explicitly via an `@return` annotation on a function returning the task, or via the `@cast/@type` annotations on the task variable.
