@@ -103,26 +103,11 @@ function native.exec_async(cwd, cmd, logger)
   return require('blink.lib.task').wrap(function(callback) native.exec(cwd, cmd, logger, callback) end)
 end
 
---- Recursively creates a directory, no-op if the directory already exists
---- @param path string
-function native.mkdirp(path)
-  vim.uv.fs_mkdir(path, 493, function(err)
-    if err then
-      -- parent might not exist, try creating it first
-      local parent = vim.fs.dirname(path)
-      if parent and parent ~= path then
-        native.mkdirp(parent)
-        vim.uv.fs_mkdir(path, 493)
-      end
-    end
-  end)
-end
-
 --- Move a file from one location to another, creating all intermediate directories at dst
 --- @param src string
 --- @param dst string
 function native.mv(src, dst)
-  native.mkdirp(vim.fs.dirname(dst))
+  vim.fn.mkdir(vim.fs.dirname(dst), 'p')
   local ok, err = vim.uv.fs_rename(src, dst)
   if not ok then error(err) end
 end
