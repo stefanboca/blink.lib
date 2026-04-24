@@ -63,6 +63,16 @@ end
 --- @param callback fun(err: string)
 function native.download(url, path, callback)
   native.mkdirp(vim.fs.dirname(path))
+
+  -- if file exists, rename it and fs_unlink it to mark for garbage collection
+  local exists = vim.uv.fs_stat(path)
+  if exists and exists.type == 'file' then
+    local random_hash = string.format('%06x', math.random(0, 0xFFFFFF))
+    local new_path = path .. '.old.' .. random_hash
+    vim.uv.fs_rename(path, new_path)
+    vim.uv.fs_unlink(new_path)
+  end
+
   vim.net.request(url, { outpath = path }, function(err) callback(err) end)
 end
 
