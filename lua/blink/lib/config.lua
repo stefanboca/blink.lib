@@ -93,12 +93,29 @@ local special_modes = {
   terminal = { 't' },
 }
 
+--- @class blink.lib.Config<T>: T
+--- @param __blink_lib_config true
+--- @overload fun(config: T, opts?: blink.lib.config.MergeOpts): blink.lib.Config<T>
+
+--- @class blink.lib.config.Opts
+--- @field global_key? string Key used for getting configs from `vim.g` and `vim.b`
+--- @field validate? boolean Validate default configuration, defaults to true
+
+--- @class blink.lib.config.MergeOpts
+--- @field validate? boolean Validate after merging configs, defaults to true
+--- @field bufnr? number Apply config to a given buffer
+--- @field mode? blink.lib.config.Mode Apply config to a given mode
+
+--- @alias blink.lib.config.Mode 'normal' | 'visual' | 'select' | 'insert' | 'replace' | 'cmdline' | 'terminal' | string
+
+--- @generic T
 --- @param global_key string Key used for getting configs from `vim.g` and `vim.b`
 --- @param schema blink.lib.ConfigSchema
---- @param opts? { validate?: boolean } Validate defaults to true
---- @return blink.lib.Config
-function M.new(global_key, schema, opts)
+--- @param opts? { global_key?: string, validate?: boolean } Validate default configuration, defaults to true
+--- @return blink.lib.Config<T>
+function M.new(schema, opts)
   local config = M.utils.extract_default(schema)
+  local global_key = opts and opts.global_key
   local per_mode = {}
   local per_bufnr = {}
   if not opts or opts.validate ~= false then M.validate(schema, config) end
@@ -114,11 +131,14 @@ function M.new(global_key, schema, opts)
 
     return setmetatable({}, {
       __index = function(_, key)
+        if key == '__blink_lib_config' then return true end
         if metatables[key] ~= nil then return metatables[key] end
 
         if mode:sub(1, 1) ~= 'c' then
-          local buffer_local_value = M.utils.tbl_get(vim.b[global_key], path, key)
-          if buffer_local_value ~= nil then return buffer_local_value end
+          if global_key then
+            local buffer_local_value = M.utils.tbl_get(vim.b[global_key], path, key)
+            if buffer_local_value ~= nil then return buffer_local_value end
+          end
 
           local buffer_value = M.utils.tbl_get(per_bufnr[vim.api.nvim_get_current_buf()], path, key)
           if buffer_value ~= nil then return buffer_value end
@@ -127,8 +147,10 @@ function M.new(global_key, schema, opts)
         local mode_value = M.utils.tbl_get(per_mode[mode], path, key)
         if mode_value ~= nil then return mode_value end
 
-        local global_value = M.utils.tbl_get(vim.g[global_key], path, key)
-        if global_value ~= nil then return global_value end
+        if global_key then
+          local global_value = M.utils.tbl_get(vim.g[global_key], path, key)
+          if global_value ~= nil then return global_value end
+        end
 
         return M.utils.tbl_get(config, path, key)
       end,
