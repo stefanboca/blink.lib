@@ -5,6 +5,7 @@ return {
   download = require('blink.lib.download'),
   fs = require('blink.lib.fs'),
   log = require('blink.lib.log'),
+  lsp = require('blink.lib.lsp'),
   task = require('blink.lib.task'),
   native = require('blink.lib.native'),
   nvim = require('blink.lib.nvim'),
