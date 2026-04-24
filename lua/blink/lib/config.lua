@@ -75,12 +75,17 @@ end
 
 --- @alias blink.lib.ConfigSchema { [string]: blink.lib.ConfigSchema | blink.lib.ConfigSchemaField }
 
--- cache mode for slightly faster access
--- TODO: measure this, also check if it's worth caching bufnr
+-- cache mode and bufnr for slightly faster access
+local augroup = vim.api.nvim_create_augroup('blink.lib.config', {})
 local mode = vim.api.nvim_get_mode().mode
+local bufnr = vim.api.nvim_get_current_buf()
 vim.api.nvim_create_autocmd('ModeChanged', {
-  group = vim.api.nvim_create_augroup('blink.lib.config', {}),
+  group = augroup,
   callback = function() mode = vim.api.nvim_get_mode().mode end,
+})
+vim.api.nvim_create_autocmd('BufEnter', {
+  group = augroup,
+  callback = function() bufnr = vim.api.nvim_get_current_buf() end,
 })
 
 local special_modes = {
@@ -140,7 +145,7 @@ function M.new(schema, opts)
             if buffer_local_value ~= nil then return buffer_local_value end
           end
 
-          local buffer_value = M.utils.tbl_get(per_bufnr[vim.api.nvim_get_current_buf()], path, key)
+          local buffer_value = M.utils.tbl_get(per_bufnr[bufnr], path, key)
           if buffer_value ~= nil then return buffer_value end
         end
 
