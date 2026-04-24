@@ -123,8 +123,7 @@ function native.mkdirp(path)
     local parent = vim.fs.dirname(path)
     if parent and parent ~= path then
       native.mkdirp(parent)
-      local ok, err = vim.uv.fs_mkdir(path, 493)
-      if not ok then error(err) end
+      vim.uv.fs_mkdir(path, 493)
     end
   end
 end
