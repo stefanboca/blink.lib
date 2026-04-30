@@ -26,7 +26,7 @@ All APIs are unstable until v1!
 - [`blink.lib.log`](#blinkliblog): Notifications and logging to file and/or console
 - [`blink.lib.nvim`](#blinklibnvim): Re-exported nvim APIs (`nvim.create_buf(...)`)
 - [`blink.lib.timer`](#blinklibtimer): Timers with automatically schedule callbacks with support for cancellation, without racing
-- [`blink.lib.bench`](#blinklibbench): Benchmarking API (see `benches/**/*.lua`)
+- [`blink.lib.bench`](#blinklibbench): Statistics-driven micro-benchmarking API (see `benches/**/*.lua`)
 
 ### Roadmap
 
