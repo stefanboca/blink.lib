@@ -326,6 +326,72 @@ function M.types.map(key_type, value_type)
   )
 end
 
+--- Validates that the value is a table with optional known fields (`struct`)
+--- and arbitrary extra keys matching `key_type` -> `value_type`.
+--- @param struct? blink.lib.ConfigSchema
+--- @param key_type blink.lib.ConfigSchemaType
+--- @param value_type blink.lib.ConfigSchemaType
+--- @return blink.lib.ConfigSchemaValidator
+function M.types.table(struct, key_type, value_type)
+  local desc = 'table'
+  if struct then
+    local desc_fn = function(key) return key .. ': ' .. M.utils.describe_type(struct[key][2]) end
+    local fields = vim.tbl_map(desc_fn, vim.tbl_keys(struct))
+    desc = desc .. '{ ' .. table.concat(fields, ', ') .. ' }'
+  end
+  desc = desc .. ' & map(' .. M.utils.describe_type(key_type) .. ', ' .. M.utils.describe_type(value_type) .. ')'
+
+  -- Recursively validate the struct's known keys (not extra keys)
+  local function validate_struct(schema, tbl, path)
+    for key, field in pairs(schema) do
+      local t, k = field[2], tbl[key]
+      if t == nil then
+        local pk = path .. key
+        if type(k) ~= 'table' then error(pk .. ': expected nested table, got ' .. M.utils.describe_value(k)) end
+        validate_struct(field, k, pk .. '.')
+      else
+        local ok, err = M.utils.validate_value(k, t)
+        if not ok then
+          local msg = err or ('expected %s, got %s'):format(M.utils.describe_type(t), M.utils.describe_value(k))
+          error(path .. key .. ': ' .. msg)
+        end
+      end
+    end
+  end
+
+  return M.types.validator(desc, function(val)
+    if type(val) ~= 'table' then return false, ': expected table, got ' .. M.utils.describe_value(val) end
+
+    if struct then
+      local ok, err = pcall(validate_struct, struct, val, '')
+      if not ok then return false, '; table validation failed: ' .. err end
+    end
+
+    for k, v in pairs(val) do
+      if not struct or struct[k] == nil then
+        local ok_key = M.utils.validate_value(k, key_type)
+        if not ok_key then
+          return false,
+            ('[%s](key): expected %s, got %s'):format(
+              M.utils.describe_literal(k),
+              M.utils.describe_type(key_type),
+              M.utils.describe_value(k)
+            )
+        end
+
+        local ok_val, err_val = M.utils.validate_value(v, value_type)
+        if not ok_val then
+          local msg = err_val
+            or ('expected %s, got %s'):format(M.utils.describe_type(value_type), M.utils.describe_value(v))
+          return false, ('[%s](value): %s'):format(M.utils.describe_literal(k), msg)
+        end
+      end
+    end
+
+    return true
+  end)
+end
+
 -------------------
 --- UTILS
 -------------------
