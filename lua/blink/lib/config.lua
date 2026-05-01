@@ -273,6 +273,20 @@ function M.types.list(inner_type)
   end)
 end
 
+--- Accepts any value that matches at least one of the given types.
+--- @vararg blink.lib.ConfigSchemaType
+--- @return blink.lib.ConfigSchemaValidator
+function M.types.union(...)
+  local types_list = { ... }
+  local desc = 'union(' .. table.concat(vim.tbl_map(M.utils.describe_type, types_list), ' | ') .. ')'
+  return M.types.validator(desc, function(val)
+    for _, t in ipairs(types_list) do
+      if M.utils.validate_value(val, t) then return true end
+    end
+    return false
+  end)
+end
+
 --- Ensure both keys and values are validated.
 --- @param key_type blink.lib.ConfigSchemaType
 --- @param value_type blink.lib.ConfigSchemaType
