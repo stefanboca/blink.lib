@@ -217,7 +217,7 @@ function M.validate(schema, tbl, parent_path)
       if not ok then
         local path = parent_path .. key
         if inner_err then
-          error(path .. inner_err)
+          error(path .. ': ' .. inner_err)
         else
           error(path .. ': expected ' .. M.utils.describe_type(t) .. ', got ' .. M.utils.describe_value(tbl[key]))
         end
@@ -299,7 +299,7 @@ function M.types.map(key_type, value_type)
   return M.types.validator(
     'map(' .. M.utils.describe_type(key_type) .. ', ' .. M.utils.describe_type(value_type) .. ')',
     function(val)
-      if type(val) ~= 'table' then return false, ': expected table, got ' .. M.utils.describe_value(val) end
+      if type(val) ~= 'table' then return false, 'expected table, got ' .. M.utils.describe_value(val) end
 
       for k, v in pairs(val) do
         local ok, err = M.utils.validate_value(k, key_type)
@@ -350,26 +350,26 @@ function M.types.table(struct, key_type, value_type)
   local function validate_struct(schema, tbl, path)
     for key, field in pairs(schema) do
       local t, k = field[2], tbl[key]
+      local prefix_msg = path .. key .. ': '
       if t == nil then
-        local pk = path .. key
-        if type(k) ~= 'table' then error(pk .. ': expected nested table, got ' .. M.utils.describe_value(k)) end
-        validate_struct(field, k, pk .. '.')
+        if type(k) ~= 'table' then error(prefix_msg .. 'expected nested table, got ' .. M.utils.describe_value(k)) end
+        validate_struct(field, k, prefix_msg .. '.')
       else
         local ok, err = M.utils.validate_value(k, t)
         if not ok then
           local msg = err or ('expected %s, got %s'):format(M.utils.describe_type(t), M.utils.describe_value(k))
-          error(path .. key .. ': ' .. msg)
+          error(prefix_msg .. msg)
         end
       end
     end
   end
 
   return M.types.validator(desc, function(val)
-    if type(val) ~= 'table' then return false, ': expected table, got ' .. M.utils.describe_value(val) end
+    if type(val) ~= 'table' then return false, 'expected table, got ' .. M.utils.describe_value(val) end
 
     if struct then
       local ok, err = pcall(validate_struct, struct, val, '')
-      if not ok then return false, '; table validation failed: ' .. err end
+      if not ok then return false, 'table validation failed: ' .. err end
     end
 
     for k, v in pairs(val) do
