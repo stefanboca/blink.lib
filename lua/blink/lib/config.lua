@@ -261,11 +261,13 @@ function M.types.list(inner_type)
   return M.types.validator('list(' .. M.utils.describe_type(inner_type) .. ')', function(val)
     if not vim.islist(val) then return false end
     for i, inner_val in ipairs(val) do
-      local ok = M.utils.validate_value(inner_val, inner_type)
-      if ok == false then
+      local ok, err = M.utils.validate_value(inner_val, inner_type)
+      if not ok then
         return false,
-          '[' .. i .. ']: expected ' .. M.utils.describe_type(inner_type) .. ', got ' .. M.utils.describe_value(
-            inner_val
+          err or ('[%s]: expected %s, got %s'):format(
+            i,
+            M.utils.describe_type(inner_type),
+            M.utils.describe_value(inner_val)
           )
       end
     end
