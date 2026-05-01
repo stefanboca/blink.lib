@@ -313,7 +313,7 @@ function M.types.map(key_type, value_type)
 
         local ok_val, err_val = M.utils.validate_value(v, value_type)
         if not ok_val then
-          if err then return false, err_val end
+          if err_val then return false, err_val end
 
           local msg = ('[%s](value): expected %s, got %s'):format(
             M.utils.describe_literal(k),
@@ -371,10 +371,10 @@ function M.types.table(struct, key_type, value_type)
 
     for k, v in pairs(val) do
       if not struct or struct[k] == nil then
-        local ok_key = M.utils.validate_value(k, key_type)
+        local ok_key, err_key = M.utils.validate_value(k, key_type)
         if not ok_key then
           return false,
-            ('[%s](key): expected %s, got %s'):format(
+            err_key or ('[%s](key): expected %s, got %s'):format(
               M.utils.describe_literal(k),
               M.utils.describe_type(key_type),
               M.utils.describe_value(k)
@@ -383,9 +383,12 @@ function M.types.table(struct, key_type, value_type)
 
         local ok_val, err_val = M.utils.validate_value(v, value_type)
         if not ok_val then
-          local msg = err_val
-            or ('expected %s, got %s'):format(M.utils.describe_type(value_type), M.utils.describe_value(v))
-          return false, ('[%s](value): %s'):format(M.utils.describe_literal(k), msg)
+          return false,
+            err_val or ('[%s](value): expected %s, got %s'):format(
+              M.utils.describe_literal(k),
+              M.utils.describe_type(value_type),
+              M.utils.describe_value(v)
+            )
         end
       end
     end
