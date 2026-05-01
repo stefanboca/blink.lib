@@ -282,10 +282,13 @@ function M.types.union(...)
   local types_list = { ... }
   local desc = 'union(' .. table.concat(vim.tbl_map(M.utils.describe_type, types_list), ' | ') .. ')'
   return M.types.validator(desc, function(val)
+    local deepest_err
     for _, t in ipairs(types_list) do
-      if M.utils.validate_value(val, t) then return true end
+      local ok, err = M.utils.validate_value(val, t)
+      if ok then return true end
+      if err then deepest_err = err end
     end
-    return false
+    return false, deepest_err
   end)
 end
 
