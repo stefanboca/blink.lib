@@ -309,14 +309,14 @@ function M.types.map(key_type, value_type)
           return false, msg
         end
 
-        local ok, err = M.utils.validate_value(v, value_type)
-        if not ok then
-          if err then return false, err end
+        local ok_val, err_val = M.utils.validate_value(v, value_type)
+        if not ok_val then
+          if err then return false, err_val end
 
-          local msg = ('[%s](key): expected %s, got %s'):format(
+          local msg = ('[%s](value): expected %s, got %s'):format(
             M.utils.describe_literal(k),
             M.utils.describe_type(value_type),
-            M.utils.describe_value(k)
+            M.utils.describe_value(v)
           )
           return false, msg
         end
